@@ -60,6 +60,16 @@ const TopicList = () => {
       );
     }
 
+    if (filterCriteria.timeRange.start) {
+      const startMs = new Date(filterCriteria.timeRange.start).getTime();
+      result = result.filter((t) => new Date(t.latestPostTime).getTime() >= startMs);
+    }
+
+    if (filterCriteria.timeRange.end) {
+      const endMs = new Date(filterCriteria.timeRange.end).getTime();
+      result = result.filter((t) => new Date(t.firstPostTime).getTime() <= endMs);
+    }
+
     return result.sort((a, b) => b.volume - a.volume);
   }, [topics, searchText, filterCriteria]);
 

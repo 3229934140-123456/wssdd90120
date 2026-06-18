@@ -1,4 +1,5 @@
-import type { SpreadNode, SpreadEdge, MediaFollowUp } from '@/types';
+import type { SpreadNode, SpreadEdge, MediaFollowUp, TopicPackage } from '@/types';
+import dayjs from 'dayjs';
 
 export const mockSpreadNodes: Record<string, SpreadNode[]> = {
   'topic-001': [
@@ -160,14 +161,172 @@ export const mockMediaFollowUps: Record<string, MediaFollowUp[]> = {
   ],
 };
 
-export const getSpreadNodes = (topicId: string): SpreadNode[] => {
-  return mockSpreadNodes[topicId] || [];
+const enterpriseLabelMap: Record<string, string> = {
+  '某知名车企': '车企官方',
+  '某互联网公司': '公司官方',
+  '某餐饮集团': '品牌官方',
+  '某地产公司': '公司公告',
+  '某科技公司': '品牌官方',
+  '某银行': '银行公告',
+  '某电商平台': '平台公告',
+  '某制药公司': '公司公告',
 };
 
-export const getSpreadEdges = (topicId: string): SpreadEdge[] => {
+export function generateFallbackNodes(topic: TopicPackage): SpreadNode[] {
+  const nodes: SpreadNode[] = [];
+  const baseTime = dayjs(topic.firstPostTime);
+
+  nodes.push({
+    id: `fb-${topic.id}-first`,
+    accountName: `${topic.cities[0] || ''}爆料用户`,
+    accountType: 'user',
+    followers: Math.round(topic.volume * 0.5),
+    postTime: topic.firstPostTime,
+    content: topic.relatedStatements[0] || topic.title,
+    repostCount: Math.round(topic.volume * 0.15),
+    commentCount: Math.round(topic.volume * 0.08),
+    likeCount: Math.round(topic.volume * 0.25),
+    isKeyNode: true,
+    platform: topic.channels[0] || 'weibo',
+  });
+
+  if (topic.channels.length > 1) {
+    nodes.push({
+      id: `fb-${topic.id}-kol`,
+      accountName: `${topic.enterprises[0] || ''}观察者`,
+      accountType: 'kolt',
+      followers: Math.round(topic.volume * 3),
+      postTime: baseTime.add(2, 'hour').format('YYYY-MM-DD HH:mm:ss'),
+      content: topic.relatedStatements[1] || `关于${topic.title}，持续关注中...`,
+      repostCount: Math.round(topic.volume * 0.2),
+      commentCount: Math.round(topic.volume * 0.12),
+      likeCount: Math.round(topic.volume * 0.4),
+      isKeyNode: true,
+      platform: topic.channels[1],
+    });
+  }
+
+  nodes.push({
+    id: `fb-${topic.id}-media`,
+    accountName: '财经观察',
+    accountType: 'media',
+    followers: 4500000,
+    postTime: baseTime.add(4, 'hour').format('YYYY-MM-DD HH:mm:ss'),
+    content: topic.relatedStatements.length > 2
+      ? topic.relatedStatements[2]
+      : `${topic.title}，相关部门正在调查。`,
+    repostCount: Math.round(topic.volume * 0.35),
+    commentCount: Math.round(topic.volume * 0.18),
+    likeCount: Math.round(topic.volume * 0.6),
+    isKeyNode: true,
+    platform: 'news',
+  });
+
+  if (topic.enterprises.length > 0) {
+    const entName = topic.enterprises[0];
+    nodes.push({
+      id: `fb-${topic.id}-official`,
+      accountName: enterpriseLabelMap[entName] || entName,
+      accountType: 'enterprise',
+      followers: 1200000,
+      postTime: baseTime.add(7, 'hour').format('YYYY-MM-DD HH:mm:ss'),
+      content: `关于网传${topic.title}的相关信息，我们高度重视，已启动调查核实，后续将及时通报。`,
+      repostCount: Math.round(topic.volume * 0.5),
+      commentCount: Math.round(topic.volume * 0.35),
+      likeCount: Math.round(topic.volume * 0.8),
+      isKeyNode: true,
+      platform: 'weibo',
+    });
+  }
+
+  return nodes;
+}
+
+export function generateFallbackMedia(topic: TopicPackage): MediaFollowUp[] {
+  const baseTime = dayjs(topic.firstPostTime);
+  const result: MediaFollowUp[] = [];
+
+  result.push({
+    id: `fbm-${topic.id}-1`,
+    mediaName: `${topic.cities[0] || ''}日报`,
+    mediaLevel: 'local',
+    reportTime: baseTime.add(3, 'hour').format('YYYY-MM-DD HH:mm:ss'),
+    title: topic.relatedStatements[0] || topic.title,
+    url: '#',
+  });
+
+  result.push({
+    id: `fbm-${topic.id}-2`,
+    mediaName: '经济观察报',
+    mediaLevel: 'national',
+    reportTime: baseTime.add(6, 'hour').format('YYYY-MM-DD HH:mm:ss'),
+    title: topic.relatedStatements.length > 1 ? topic.relatedStatements[1] : topic.title,
+    url: '#',
+  });
+
+  result.push({
+    id: `fbm-${topic.id}-3`,
+    mediaName: '行业周刊',
+    mediaLevel: 'industry',
+    reportTime: baseTime.add(12, 'hour').format('YYYY-MM-DD HH:mm:ss'),
+    title: `深度追踪：${topic.title}`,
+    url: '#',
+  });
+
+  return result;
+}
+
+function collectMergedSourceIds(topic: TopicPackage): string[] {
+  const ids: string[] = [];
+  if (topic.mergedFrom && topic.mergedFrom.length > 0) {
+    for (const src of topic.mergedFrom) {
+      ids.push(src.id);
+      ids.push(...collectMergedSourceIds(src));
+    }
+  }
+  return ids;
+}
+
+export function getSpreadNodes(topic: TopicPackage): SpreadNode[] {
+  const explicit = mockSpreadNodes[topic.id];
+  if (explicit) return explicit;
+
+  if (topic.mergedFrom && topic.mergedFrom.length > 0) {
+    const allDirectIds = topic.mergedFrom.map((t) => t.id);
+    const sourceIds = collectMergedSourceIds(topic);
+    const allIds = [...new Set([...allDirectIds, ...sourceIds])];
+    let collected: SpreadNode[] = [];
+    for (const sid of allIds) {
+      if (mockSpreadNodes[sid]) {
+        collected = collected.concat(mockSpreadNodes[sid]);
+      }
+    }
+    if (collected.length > 0) return collected;
+  }
+
+  return generateFallbackNodes(topic);
+}
+
+export function getSpreadEdges(topicId: string): SpreadEdge[] {
   return mockSpreadEdges[topicId] || [];
-};
+}
 
-export const getMediaFollowUps = (topicId: string): MediaFollowUp[] => {
-  return mockMediaFollowUps[topicId] || [];
-};
+export function getMediaFollowUps(topic: TopicPackage): MediaFollowUp[] {
+  const explicit = mockMediaFollowUps[topic.id];
+  if (explicit) return explicit;
+
+  if (topic.mergedFrom && topic.mergedFrom.length > 0) {
+    const allDirectIds = topic.mergedFrom.map((t) => t.id);
+    const sourceIds = collectMergedSourceIds(topic);
+    const allIds = [...new Set([...allDirectIds, ...sourceIds])];
+    let collected: MediaFollowUp[] = [];
+    for (const sid of allIds) {
+      if (mockMediaFollowUps[sid]) {
+        collected = collected.concat(mockMediaFollowUps[sid]);
+      }
+    }
+    if (collected.length > 0) return collected;
+  }
+
+  return generateFallbackMedia(topic);
+}

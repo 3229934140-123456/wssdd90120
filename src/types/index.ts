@@ -35,6 +35,7 @@ export interface TopicPackage {
   enterprises: string[];
   judgmentBasis?: string;
   riskTags: string[];
+  mergedFrom?: TopicPackage[];
 }
 
 export interface SpreadNode {

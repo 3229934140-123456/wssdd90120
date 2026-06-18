@@ -1,4 +1,5 @@
-import type { SentimentDataPoint, CommentItem } from '@/types';
+import type { SentimentDataPoint, CommentItem, TopicPackage } from '@/types';
+import dayjs from 'dayjs';
 
 export const mockSentimentData: Record<string, SentimentDataPoint[]> = {
   'topic-001': [
@@ -86,10 +87,102 @@ export const mockComments: Record<string, CommentItem[]> = {
   ],
 };
 
-export const getSentimentData = (topicId: string): SentimentDataPoint[] => {
-  return mockSentimentData[topicId] || [];
-};
+export function generateFallbackSentiment(topic: TopicPackage): SentimentDataPoint[] {
+  const points: SentimentDataPoint[] = [];
+  const start = dayjs(topic.firstPostTime);
+  const end = dayjs(topic.latestPostTime);
+  const hours = Math.max(2, end.diff(start, 'hour'));
+  const steps = Math.min(12, Math.max(4, Math.floor(hours / 2)));
 
-export const getComments = (topicId: string): CommentItem[] => {
-  return mockComments[topicId] || [];
-};
+  for (let i = 0; i <= steps; i++) {
+    const time = start.add((hours / steps) * i, 'hour');
+    const progress = i / steps;
+    const rampFactor = Math.sin(progress * Math.PI);
+
+    const neg = Math.round(topic.sentiment.negative * (0.7 + rampFactor * 0.6));
+    const pos = Math.round(topic.sentiment.positive * (0.5 + (1 - rampFactor) * 0.5));
+    const neu = 100 - neg - pos;
+    const total = Math.round(topic.volume * rampFactor * 0.8 + topic.volume * 0.05);
+
+    points.push({
+      time: time.format('MM-DD HH:mm'),
+      positive: Math.max(1, pos),
+      neutral: Math.max(1, neu),
+      negative: Math.max(1, neg),
+      total,
+    });
+  }
+
+  return points;
+}
+
+export function generateFallbackComments(topic: TopicPackage): CommentItem[] {
+  const baseTime = dayjs(topic.firstPostTime);
+  const commentTemplates = [
+    { userName: '关注者A', sentiment: 'negative' as const, content: topic.relatedStatements[0] || topic.title },
+    { userName: '理性用户', sentiment: 'neutral' as const, content: '需要更多信息才能判断，等官方回应。' },
+    { userName: '业内人士', sentiment: 'neutral' as const, content: `关于${topic.enterprises[0] || '涉事方'}这件事，行业里其实早有预兆...` },
+    { userName: '利益相关方', sentiment: 'negative' as const, content: '希望有关部门尽快介入调查，给大家一个交代。' },
+    { userName: '支持者', sentiment: 'positive' as const, content: '相信问题能够妥善解决，不要过度解读。' },
+  ];
+
+  return commentTemplates.map((tpl, i) => ({
+    id: `fbc-${topic.id}-${i}`,
+    userName: tpl.userName,
+    content: tpl.content,
+    sentiment: tpl.sentiment,
+    likes: Math.round(topic.volume * 0.01 * (5 - i)),
+    time: baseTime.add(i * 3, 'hour').format('YYYY-MM-DD HH:mm:ss'),
+  }));
+}
+
+function collectMergedSourceIds(topic: TopicPackage): string[] {
+  const ids: string[] = [];
+  if (topic.mergedFrom && topic.mergedFrom.length > 0) {
+    for (const src of topic.mergedFrom) {
+      ids.push(src.id);
+      ids.push(...collectMergedSourceIds(src));
+    }
+  }
+  return ids;
+}
+
+export function getSentimentData(topic: TopicPackage): SentimentDataPoint[] {
+  const explicit = mockSentimentData[topic.id];
+  if (explicit) return explicit;
+
+  if (topic.mergedFrom && topic.mergedFrom.length > 0) {
+    const allDirectIds = topic.mergedFrom.map((t) => t.id);
+    const sourceIds = collectMergedSourceIds(topic);
+    const allIds = [...new Set([...allDirectIds, ...sourceIds])];
+    const collected: SentimentDataPoint[] = [];
+    for (const sid of allIds) {
+      if (mockSentimentData[sid]) {
+        collected.push(...mockSentimentData[sid]);
+      }
+    }
+    if (collected.length > 0) return collected;
+  }
+
+  return generateFallbackSentiment(topic);
+}
+
+export function getComments(topic: TopicPackage): CommentItem[] {
+  const explicit = mockComments[topic.id];
+  if (explicit) return explicit;
+
+  if (topic.mergedFrom && topic.mergedFrom.length > 0) {
+    const allDirectIds = topic.mergedFrom.map((t) => t.id);
+    const sourceIds = collectMergedSourceIds(topic);
+    const allIds = [...new Set([...allDirectIds, ...sourceIds])];
+    const collected: CommentItem[] = [];
+    for (const sid of allIds) {
+      if (mockComments[sid]) {
+        collected.push(...mockComments[sid]);
+      }
+    }
+    if (collected.length > 0) return collected;
+  }
+
+  return generateFallbackComments(topic);
+}

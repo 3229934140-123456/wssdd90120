@@ -7,9 +7,44 @@ import { mockRiskPoints } from '@/data/riskPoints';
 import { useWorkbenchStore } from '@/store/useWorkbenchStore';
 import { riskLevelConfig } from '@/data/constants';
 import { formatNumber } from '@/utils';
+import type { TopicPackage } from '@/types';
 
 const MapView = () => {
   const { filterCriteria, topics, setSelectedTopicId, openWindow, setActiveWindow } = useWorkbenchStore();
+
+  const filteredTopics = useMemo(() => {
+    let result = [...topics];
+
+    if (filterCriteria.riskLevels.length > 0) {
+      result = result.filter((t) => filterCriteria.riskLevels.includes(t.riskLevel));
+    }
+
+    if (filterCriteria.enterprises.length > 0) {
+      result = result.filter((t) =>
+        t.enterprises.some((e) => filterCriteria.enterprises.includes(e))
+      );
+    }
+
+    if (filterCriteria.channels.length > 0) {
+      result = result.filter((t) =>
+        t.channels.some((c) => filterCriteria.channels.includes(c))
+      );
+    }
+
+    if (filterCriteria.timeRange.start) {
+      const startMs = new Date(filterCriteria.timeRange.start).getTime();
+      result = result.filter((t) => new Date(t.latestPostTime).getTime() >= startMs);
+    }
+
+    if (filterCriteria.timeRange.end) {
+      const endMs = new Date(filterCriteria.timeRange.end).getTime();
+      result = result.filter((t) => new Date(t.firstPostTime).getTime() <= endMs);
+    }
+
+    return result;
+  }, [topics, filterCriteria]);
+
+  const filteredTopicIds = useMemo(() => new Set(filteredTopics.map((t) => t.id)), [filteredTopics]);
 
   const filteredRiskPoints = useMemo(() => {
     let points = [...mockRiskPoints];
@@ -18,19 +53,32 @@ const MapView = () => {
       points = points.filter((p) => filterCriteria.regions.includes(p.province));
     }
 
-    if (filterCriteria.riskLevels.length > 0) {
-      points = points.filter((p) => filterCriteria.riskLevels.includes(p.riskLevel));
-    }
-
-    if (filterCriteria.enterprises.length > 0) {
-      const relevantTopicIds = topics
-        .filter((t) => t.enterprises.some((e) => filterCriteria.enterprises.includes(e)))
-        .map((t) => t.id);
-      points = points.filter((p) => p.topicIds.some((tid) => relevantTopicIds.includes(tid)));
-    }
+    points = points.map((p) => {
+      const matchingTopicIds = p.topicIds.filter((tid) => filteredTopicIds.has(tid));
+      return {
+        ...p,
+        topicIds: matchingTopicIds,
+        volume: matchingTopicIds.length > 0
+          ? Math.round(p.volume * (matchingTopicIds.length / p.topicIds.length))
+          : 0,
+        riskLevel: matchingTopicIds.length === 0
+          ? 'low' as const
+          : matchingTopicIds.some((tid) => {
+              const topic = topics.find((t) => t.id === tid);
+              return topic?.riskLevel === 'high';
+            })
+          ? 'high' as const
+          : matchingTopicIds.some((tid) => {
+              const topic = topics.find((t) => t.id === tid);
+              return topic?.riskLevel === 'medium';
+            })
+          ? 'medium' as const
+          : 'low' as const,
+      };
+    }).filter((p) => p.topicIds.length > 0);
 
     return points;
-  }, [filterCriteria, topics]);
+  }, [mockRiskPoints, filterCriteria.regions, filteredTopicIds, topics]);
 
   const chartOption: EChartsOption = useMemo(() => {
     const scatterData = filteredRiskPoints.map((p) => ({

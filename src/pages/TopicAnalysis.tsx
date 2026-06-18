@@ -1,5 +1,5 @@
-import { Card, Tag, Empty, Space, Button, Breadcrumb } from 'antd';
-import { ArrowLeftOutlined, BarChartOutlined, ClockCircleOutlined, GlobalOutlined } from '@ant-design/icons';
+import { Card, Tag, Empty, Space, Button, Breadcrumb, Collapse, Badge } from 'antd';
+import { ArrowLeftOutlined, BarChartOutlined, ClockCircleOutlined, GlobalOutlined, MergeCellsOutlined } from '@ant-design/icons';
 import { useWorkbenchStore } from '@/store/useWorkbenchStore';
 import SpreadTimeline from '@/components/TopicAnalysis/SpreadTimeline';
 import SentimentAnalysis from '@/components/TopicAnalysis/SentimentAnalysis';
@@ -11,7 +11,7 @@ import { channels, riskLevelConfig } from '@/data/constants';
 import { formatNumber, formatDateTime } from '@/utils';
 
 const TopicAnalysisWindow = () => {
-  const { selectedTopic, setActiveWindow, setSelectedTopicId } = useWorkbenchStore();
+  const { selectedTopic, setActiveWindow } = useWorkbenchStore();
 
   if (!selectedTopic) {
     return (
@@ -21,10 +21,10 @@ const TopicAnalysisWindow = () => {
     );
   }
 
-  const spreadNodes = getSpreadNodes(selectedTopic.id);
-  const mediaFollowUps = getMediaFollowUps(selectedTopic.id);
-  const sentimentData = getSentimentData(selectedTopic.id);
-  const comments = getComments(selectedTopic.id);
+  const spreadNodes = getSpreadNodes(selectedTopic);
+  const mediaFollowUps = getMediaFollowUps(selectedTopic);
+  const sentimentData = getSentimentData(selectedTopic);
+  const comments = getComments(selectedTopic);
 
   const levelConfig = riskLevelConfig[selectedTopic.riskLevel];
 
@@ -54,6 +54,11 @@ const TopicAnalysisWindow = () => {
             {selectedTopic.manualRiskLevel && (
               <Tag color="blue" style={{ fontSize: 11 }}>
                 已人工调整
+              </Tag>
+            )}
+            {selectedTopic.mergedFrom && selectedTopic.mergedFrom.length > 0 && (
+              <Tag color="purple" style={{ fontSize: 11 }}>
+                <MergeCellsOutlined /> 合并话题包
               </Tag>
             )}
           </Space>
@@ -113,6 +118,53 @@ const TopicAnalysisWindow = () => {
                 {s}
               </span>
             ))}
+          </div>
+        )}
+
+        {selectedTopic.mergedFrom && selectedTopic.mergedFrom.length > 0 && (
+          <div className="mt-2">
+            <Collapse
+              size="small"
+              items={[{
+              key: 'merged',
+              label: (
+                <div className="flex items-center gap-2">
+                  <MergeCellsOutlined style={{ color: '#722ed1' }} />
+                  <span className="text-sm">合并来源</span>
+                  <Badge count={selectedTopic.mergedFrom.length} style={{ backgroundColor: '#722ed1' }} />
+                </div>
+              ),
+              children: (
+                <div className="space-y-2">
+                  {selectedTopic.mergedFrom.map((src, idx) => {
+                    const srcLevelConfig = riskLevelConfig[src.riskLevel];
+                    return (
+                      <div key={src.id} className="p-2 bg-gray-800/50 rounded border border-gray-700">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs text-gray-500">#{idx + 1}</span>
+                          <span className="font-medium text-sm flex-1">{src.title}</span>
+                          <Tag color={srcLevelConfig.color} style={{ fontSize: 10, padding: '0 4px' }}>
+                            {srcLevelConfig.label}
+                          </Tag>
+                        </div>
+                        <div className="text-xs text-gray-400 flex gap-3">
+                          <span>声量: {formatNumber(src.volume)}</span>
+                          <span>城市: {src.cities.join('、')}</span>
+                          <span>渠道: {src.channels.map((c) => channels.find((ch) => ch.value === c)?.label).join('、')}</span>
+                        </div>
+                        {src.relatedStatements.length > 0 && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            说法: {src.relatedStatements.slice(0, 2).join('；')}
+                            {src.relatedStatements.length > 2 && ` 等${src.relatedStatements.length}种`}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ),
+            }]}
+            />
           </div>
         )}
       </Card>
